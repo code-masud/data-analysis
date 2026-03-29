@@ -1,44 +1,64 @@
-
+from pathlib import Path
 import pandas as pd
-import numpy as np
+
 
 class SalesData:
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.df = None
+    def __init__(self, file_path: str):
+        self.file_path = self._validate_path(file_path)
+        self.df: pd.DataFrame | None = None
 
-    def load_data(self):
+    @staticmethod
+    def _validate_path(file_path: str) -> Path:
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"{file_path} does not exist.")
+        if not path.is_file():
+            raise ValueError(f"{file_path} is not a valid file.")
+        return path
+
+    def load_data(self) -> pd.DataFrame:
         """Load CSV data into a pandas DataFrame"""
-        self.df = pd.read_csv(self.file_path)
-        return self.df
+        try:
+            self.df = pd.read_csv(self.file_path)
+            return self.df
+        except Exception as e:
+            raise RuntimeError(f"Error loading data: {e}")
 
-    def clean_data(self):
+    def clean_data(self) -> pd.DataFrame:
         """Perform basic cleaning steps"""
         if self.df is None:
-            raise ValueError("Data not loaded. Run load_data() first.")
+            raise RuntimeError("Data not loaded. Run load_data() first.")
 
-        # Convert 'Date' to datetime
-        self.df['Date'] = pd.to_datetime(self.df['Date'], errors='coerce')
+        df = self.df.copy()
 
-        # Drop rows with missing Weekly_Sales or Date
-        self.df = self.df.dropna(subset=['Weekly_Sales', 'Date'])
+        # Convert Date
+        df['Date'] = pd.to_datetime(df.get('Date'), errors='coerce')
 
-        # Fill missing numeric values (Temperature, Fuel_Price, CPI, Unemployment) with median
+        # Drop invalid rows
+        df = df.dropna(subset=['Weekly_Sales', 'Date'])
+
+        # Fill numeric missing values efficiently
         numeric_cols = ['Temperature', 'Fuel_Price', 'CPI', 'Unemployment']
-        for col in numeric_cols:
-            if col in self.df.columns:
-                self.df[col] = self.df[col].fillna(self.df[col].median())
+        existing_cols = [col for col in numeric_cols if col in df.columns]
+        df[existing_cols] = df[existing_cols].fillna(df[existing_cols].median())
 
-        # Ensure correct data types
-        self.df['Store'] = self.df['Store'].astype(int)
-        self.df['Holiday_Flag'] = self.df['Holiday_Flag'].astype(int)
-        self.df['Month'] = self.df['Date'].dt.month
-        self.df['Week'] = self.df['Date'].dt.isocalendar().week
+        # Type conversions (safe)
+        df['Store'] = pd.to_numeric(df.get('Store'), errors='coerce').astype('Int64')
+        df['Holiday_Flag'] = pd.to_numeric(df.get('Holiday_Flag'), errors='coerce').astype('Int64')
 
+        # Feature engineering
+        df['Month'] = df['Date'].dt.month
+        df['Week'] = df['Date'].dt.isocalendar().week.astype('Int64')
+
+        self.df = df
         return self.df
 
-    def save_clean_data(self, output_path):
+    def save_clean_data(self, output_path: str) -> None:
         """Save cleaned data to CSV"""
         if self.df is None:
-            raise ValueError("Data not cleaned. Run clean_data() first.")
+            raise RuntimeError("No data available to save.")
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         self.df.to_csv(output_path, index=False)
+
